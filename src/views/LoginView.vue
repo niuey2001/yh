@@ -74,7 +74,7 @@ const handleLogin = () => {
     align-items: center;
     background: url('/images/login-bg.png') no-repeat center center #00a651;
     background-size: cover;
-    /* position: relative; */
+    position: relative;
 }
 
 .login-bot-img {
