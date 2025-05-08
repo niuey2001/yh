@@ -1,10 +1,82 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed, nextTick } from 'vue'
 import { useSystemDataStore } from '@/stores/systemData'
+import { use } from 'echarts/core'
+import { PieChart } from 'echarts/charts'
+import { CanvasRenderer } from 'echarts/renderers'
+import { TooltipComponent, LegendComponent, TitleComponent } from 'echarts/components'
+import VChart from 'vue-echarts'
+import type { EChartsOption } from 'echarts'
+
+// 注册必要的ECharts组件
+use([PieChart, CanvasRenderer, TitleComponent, TooltipComponent, LegendComponent])
 
 const systemData = useSystemDataStore()
 
 const currentTimeStr = ref(formatTime(new Date()))
+const statusFilter = ref('全部')
+const activeTimeFilter = ref('week')
+const chartInstance = ref<InstanceType<typeof VChart> | null>(null)
+
+// 为ECharts图表准备数据
+const pieOption = computed<EChartsOption>(() => {
+  return {
+    title: {
+      text: '投注占比',
+      left: '50%'
+    },
+    tooltip: {
+      trigger: 'item',
+      formatter: '{a} <br/>{b}: {c} ({d}%)'
+    },
+    legend: {
+      orient: 'vertical',
+      left: '60%',
+      top: 'middle',
+      data: ['PC端', 'H5端', 'APP端', '其他'],
+      textStyle: {
+        color: '#555'
+      },
+      formatter: function (name: string) {
+        const value = systemData.deviceStats[name.replace('端', '').toLowerCase() as keyof typeof systemData.deviceStats]
+        return `${name} (${value}%)`;
+      }
+    },
+    series: [
+      {
+        name: '投注占比',
+        type: 'pie',
+        radius: ['50%', '70%'],
+        center: ['30%', '50%'],
+        avoidLabelOverlap: false,
+        itemStyle: {
+          borderRadius: 5,
+          borderColor: '#fff',
+          borderWidth: 2
+        },
+        label: {
+          show: false
+        },
+        emphasis: {
+          label: {
+            show: true,
+            fontSize: '14',
+            fontWeight: 'bold'
+          }
+        },
+        labelLine: {
+          show: false
+        },
+        data: [
+          { value: systemData.deviceStats.pc, name: 'PC端', itemStyle: { color: '#4299e1' } },
+          { value: systemData.deviceStats.h5, name: 'H5端', itemStyle: { color: '#fc8181' } },
+          { value: systemData.deviceStats.app, name: 'APP端', itemStyle: { color: '#f6ad55' } },
+          { value: systemData.deviceStats.other, name: '其他', itemStyle: { color: '#68d391' } }
+        ]
+      }
+    ]
+  };
+});
 
 function formatTime(date: Date) {
   const hours = date.getHours().toString().padStart(2, '0')
@@ -18,43 +90,26 @@ setInterval(() => {
   currentTimeStr.value = formatTime(new Date())
 }, 1000)
 
-// 系统公告
-const announcements = ref([
-  {
-    id: 1,
-    title: '系统更新通知',
-    content: '系统将于下周进行版本更新，新增功能：自定义报表、数据导出等',
-    date: '2023-10-15'
-  },
-  {
-    id: 2,
-    title: '用户管理功能优化',
-    content: '用户管理模块新增批量操作功能，欢迎试用并提供反馈',
-    date: '2023-10-12'
+function resizeChart() {
+  if (chartInstance.value) {
+    chartInstance.value.resize();
   }
-])
-
-// 数据概览
-const statsData = ref({
-  todayOrders: 128,
-  bettingCount: 1024,
-  bettingAmount: 25600
-})
-
-// 设备统计数据
-const deviceStats = ref({
-  pc: 45,
-  h5: 30,
-  app: 20,
-  other: 5
-})
-
-// 选择的时间筛选
-const activeTimeFilter = ref('week')
+}
 
 // 加载最新数据
 onMounted(async () => {
   await systemData.fetchLatestData()
+
+  // 等待DOM更新后执行图表初始化
+  nextTick(() => {
+    // 等待窗口加载完成，确保DOM尺寸已经计算
+    window.addEventListener('load', () => {
+      resizeChart();
+    });
+  });
+
+  // 添加窗口大小改变的监听
+  window.addEventListener('resize', resizeChart);
 })
 </script>
 
@@ -66,8 +121,6 @@ onMounted(async () => {
     </div>
 
     <div class="section-container">
-
-
       <div class="stats-container">
         <div class="stats-row">
           <div class="stats-card cyan">
@@ -91,31 +144,8 @@ onMounted(async () => {
 
         <div class="chart-container">
           <div class="chart-section">
-            <div class="chart-title">投注占比</div>
-            <div class="chart-placeholder">
-              <div class="donut-chart">
-                <div class="donut-hole">
-                  <div class="donut-total">100%</div>
-                </div>
-              </div>
-              <div class="chart-legend">
-                <div class="legend-item">
-                  <span class="legend-color blue"></span>
-                  <span class="legend-text">PC端 ({{ systemData.deviceStats.pc }}%)</span>
-                </div>
-                <div class="legend-item">
-                  <span class="legend-color coral"></span>
-                  <span class="legend-text">H5端 ({{ systemData.deviceStats.h5 }}%)</span>
-                </div>
-                <div class="legend-item">
-                  <span class="legend-color orange"></span>
-                  <span class="legend-text">APP端 ({{ systemData.deviceStats.app }}%)</span>
-                </div>
-                <div class="legend-item">
-                  <span class="legend-color green"></span>
-                  <span class="legend-text">其他 ({{ systemData.deviceStats.other }}%)</span>
-                </div>
-              </div>
+            <div class="chart-content">
+              <v-chart class="chart" :option="pieOption" autoresize ref="chartInstance" />
             </div>
           </div>
         </div>
@@ -183,15 +213,43 @@ onMounted(async () => {
     </div>
 
     <div class="section-container">
-      <div class="section-title">系统公告</div>
-      <div class="announcement-container">
-        <div v-for="announcement in systemData.announcements" :key="announcement.id" class="announcement-item">
-          <div class="announcement-header">
-            <div class="announcement-title">{{ announcement.title }}</div>
-            <div class="announcement-date">{{ announcement.date }}</div>
+      <div class="section-header">
+        <div class="section-title">彩票排行榜</div>
+
+        <div class="time-filter">
+          <div class="tab-select-container">
+            <select v-model="statusFilter" class="tab-select">
+              <option value="全部">全部</option>
+              <option value="Top10">Top10</option>
+            </select>
           </div>
-          <div class="announcement-content">{{ announcement.content }}</div>
+
+          <button class="time-btn" :class="{ active: activeTimeFilter === 'week' }"
+            @click="activeTimeFilter = 'week'">本周</button>
+          <button class="time-btn" :class="{ active: activeTimeFilter === 'lastWeek' }"
+            @click="activeTimeFilter = 'lastWeek'">上周</button>
+          <button class="time-btn" :class="{ active: activeTimeFilter === 'month' }"
+            @click="activeTimeFilter = 'month'">本月</button>
         </div>
+      </div>
+      <div class="lottery-stats">彩票总数：<span class="stats-value">0</span></div>
+      <div class="lottery-table">
+        <table>
+          <thead>
+            <tr>
+              <th class="column-rank">排名</th>
+              <th class="column-name">彩种名称</th>
+              <th class="column-count">投注笔数 <i class="sort-icon">▼</i></th>
+              <th class="column-bet">投注金额 <i class="sort-icon">▼</i></th>
+              <th class="column-win">输赢金额 <i class="sort-icon">▼</i></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="empty-data">
+              <td colspan="5">暂无数据</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </div>
@@ -376,6 +434,8 @@ onMounted(async () => {
   border-radius: 8px;
   padding: 20px;
   border: 1px solid #eee;
+  height: 100%;
+  min-height: 400px;
 }
 
 .chart-section {
@@ -390,80 +450,18 @@ onMounted(async () => {
   border-bottom: 1px solid #eee;
 }
 
-.chart-placeholder {
-  height: calc(100% - 30px);
+.chart-content {
+  height: calc(100% - 40px);
   display: flex;
   justify-content: center;
   align-items: center;
+  min-height: 300px;
 }
 
-.donut-chart {
-  width: 150px;
-  height: 150px;
-  border-radius: 50%;
-  background: conic-gradient(#4299e1 0deg 162deg,
-      #fc8181 162deg 270deg,
-      #f6ad55 270deg 342deg,
-      #68d391 342deg 360deg);
-  position: relative;
-}
-
-.donut-hole {
-  position: absolute;
-  width: 90px;
-  height: 90px;
-  background-color: white;
-  border-radius: 50%;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-
-.donut-total {
-  font-size: 18px;
-  font-weight: bold;
-  color: #333;
-}
-
-.chart-legend {
-  margin-left: 30px;
-}
-
-.legend-item {
-  display: flex;
-  align-items: center;
-  margin-bottom: 12px;
-}
-
-.legend-color {
-  width: 12px;
-  height: 12px;
-  border-radius: 3px;
-  margin-right: 10px;
-}
-
-.legend-color.blue {
-  background-color: #4299e1;
-}
-
-.legend-color.coral {
-  background-color: #fc8181;
-}
-
-.legend-color.orange {
-  background-color: #f6ad55;
-}
-
-.legend-color.green {
-  background-color: #68d391;
-}
-
-.legend-text {
-  font-size: 13px;
-  color: #555;
+.chart {
+  height: 100%;
+  width: 100%;
+  min-height: 300px;
 }
 
 .time-filter {
@@ -655,5 +653,132 @@ onMounted(async () => {
   .dashboard-card {
     flex: 1 0 40%;
   }
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.tabs-container {
+  display: flex;
+}
+
+.tab {
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #666;
+  border-radius: 3px;
+}
+
+.tab.active {
+  background-color: #1e90ff;
+  color: white;
+}
+
+.lottery-stats {
+  font-size: 14px;
+  margin-bottom: 10px;
+  color: #333;
+}
+
+.stats-value {
+  font-weight: bold;
+  margin-left: 5px;
+}
+
+.lottery-table {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.lottery-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.lottery-table th {
+  background-color: #f5f5f5;
+  padding: 10px;
+  text-align: left;
+  font-size: 13px;
+  color: #333;
+  border: 1px solid #e0e0e0;
+}
+
+.lottery-table td {
+  padding: 10px;
+  font-size: 13px;
+  border: 1px solid #e0e0e0;
+}
+
+.column-rank {
+  width: 80px;
+}
+
+.column-name {
+  width: 30%;
+}
+
+.column-count,
+.column-bet,
+.column-win {
+  width: 20%;
+}
+
+.sort-icon {
+  font-size: 10px;
+  margin-left: 5px;
+  color: #999;
+  font-style: normal;
+}
+
+.empty-data td {
+  text-align: center;
+  color: #999;
+  padding: 30px 0;
+}
+
+.tab-select-container {
+  position: relative;
+  margin-right: 10px;
+}
+
+.tab-select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-color: #f7f9fc;
+  border: none;
+  border-radius: 0;
+  padding: 6px 20px 6px 12px;
+  color: #606266;
+  font-size: 13px;
+  cursor: pointer;
+  min-width: 80px;
+  outline: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+
+.tab-select:focus {
+  outline: none;
+}
+
+.tab-select-container::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 4px solid #909399;
+  pointer-events: none;
 }
 </style>
